@@ -13,6 +13,7 @@ def get_models():
 
 
 asr_dict = {
+    "tw asr": {"lang": ["zh"], "size": ["default"], "path": "tw_asr.py", "precision": ["float32", "float16", "int8"]},
     "达摩 ASR (中文)": {"lang": ["zh", "yue"], "size": ["large"], "path": "funasr_asr.py", "precision": ["float32"]},
     "Faster Whisper (多语种)": {
         "lang": ["auto", "en", "ja", "ko"],
