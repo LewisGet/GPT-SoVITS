@@ -27,16 +27,38 @@ import jieba_fast.posseg as psg
 # is_g2pw = False#True if is_g2pw_str.lower() == 'true' else False
 is_g2pw = True  # True if is_g2pw_str.lower() == 'true' else False
 if is_g2pw:
-    # print("当前使用g2pw进行拼音推理")
-    from text.g2pw import G2PWPinyin, correct_pronunciation
+    # https://github.com/GitYCC/g2pW
+    from g2pw import G2PWConverter
 
-    parent_directory = os.path.dirname(current_file_path)
-    g2pw = G2PWPinyin(
-        model_dir="GPT_SoVITS/text/G2PWModel",
-        model_source=os.environ.get("bert_path", "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large"),
-        v_to_u=False,
-        neutral_tone_with_five=True,
-    )
+    class TaiwanG2PWPinyin:
+        def __init__(self, model_dir, model_source):
+            self.conv = G2PWConverter(
+                model_dir=model_dir,
+                model_source=model_source,
+                style="bopomofo",  # 保持注音輸出，直接拿到台灣注音預測
+                enable_non_tradional_chinese=True,  # 內建簡轉繁，免外部 OpenCC
+            )
+
+        def lazy_pinyin(self, text, neutral_tone_with_five=True, style=None):
+            bopomofos = self.conv(text)[0]
+            fallback = lazy_pinyin(text, neutral_tone_with_five=neutral_tone_with_five, style=Style.TONE3)
+            res = []
+            for bopo, fb in zip(bopomofos, fallback):
+                if bopo:
+                    # 直接呼叫 g2pw 內建的注音轉 TONE3 拼音方法（不自己寫對表）
+                    py = self.conv._convert_bopomofo_to_pinyin(bopo)
+                    if py:
+                        if not neutral_tone_with_five and py.endswith("5"):
+                            py = py[:-1]
+                        res.append(py)
+                        continue
+                res.append(fb)
+            return res
+
+    g2pw = TaiwanG2PWPinyin(
+        # https://huggingface.co/YC-Chen/g2pW/resolve/main/G2PWModel-v2-onnx.zip
+        model_dir=os.path.join(current_file_path, "G2PWModel"),
+        model_source=os.path.join(os.path.dirname(current_file_path), "pretrained_models", "bert-base-chinese"),
 
 rep_map = {
     "：": ",",
@@ -218,9 +240,6 @@ def _g2p(segments):
                     continue
 
                 word_pinyins = pinyins[pre_word_length:now_word_length]
-
-                # 多音字消歧
-                word_pinyins = correct_pronunciation(word, word_pinyins)
 
                 for pinyin in word_pinyins:
                     if pinyin[0].isalpha():
