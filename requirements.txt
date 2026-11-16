@@ -1,7 +1,8 @@
 --no-binary=opencc
 numpy<2.0
 scipy
-tensorboard
+tensorboard<2.20
+protobuf==5.29.3
 librosa==0.10.2
 numba
 pytorch-lightning>=2.4
@@ -10,9 +11,11 @@ ffmpeg-python
 onnxruntime; platform_machine == "aarch64" or platform_machine == "arm64"
 onnxruntime-gpu; platform_machine == "x86_64" or platform_machine == "AMD64"
 tqdm
-funasr==1.0.27
+funasr>=1.4.26
+rapidfuzz
 cn2an
 pypinyin
+g2pw
 pyopenjtalk>=0.4.1
 g2p_en
 torchaudio
@@ -29,7 +32,7 @@ split-lang
 fast_langdetect>=0.3.1
 wordsegment
 rotary_embedding_torch
-ToJyutping 
+ToJyutping
 g2pk2
 ko_pron
 opencc
@@ -39,5 +42,6 @@ x_transformers
 torchmetrics<=1.5
 pydantic<=2.10.6
 ctranslate2>=4.0,<5
-av>=11
-tqdm
+faster-whisper
+av==12.3.0
+torchcodec
