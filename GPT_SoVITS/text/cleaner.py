@@ -1,24 +1,25 @@
 from text import cleaned_text_to_sequence
 import os
-# if os.environ.get("version","v1")=="v1":
-#     from text import chinese
-#     from text.symbols import symbols
-# else:
-#     from text import chinese2 as chinese
-#     from text.symbols2 import symbols
-
+import re
 from text import symbols as symbols_v1
 from text import symbols2 as symbols_v2
 
 special = [
-    # ("%", "zh", "SP"),
     ("￥", "zh", "SP2"),
     ("^", "zh", "SP3"),
-    # ('@', 'zh', "SP4")#不搞鬼畜了，和第二版保持一致吧
 ]
 
+# 映射為 chinese-roberta-wwm-ext-large vocab.txt 原生收錄的獨立單一符號（非 [UNK]）
+EVENT_TO_BERT_SYMBOL = {
+    "[LAUGH]": "√",
+    "[SIGH]": "±",
+    "[COUGH]": "×",
+    "[BREATH]": "÷",
+}
+EVENT_PATTERN = re.compile(r"(\[(?:LAUGH|SIGH|COUGH|BREATH)\])")
 
-def clean_text(text, language, version=None):
+
+def _clean_text_segment(text, language, version=None):
     if version is None:
         version = os.environ.get("version", "v2")
     if version == "v1":
@@ -39,7 +40,7 @@ def clean_text(text, language, version=None):
         norm_text = language_module.text_normalize(text)
     else:
         norm_text = text
-    if language == "zh" or language == "yue":  ##########
+    if language == "zh" or language == "yue":
         phones, word2ph = language_module.g2p(norm_text)
         assert len(phones) == sum(word2ph)
         assert len(norm_text) == len(word2ph)
@@ -55,6 +56,37 @@ def clean_text(text, language, version=None):
     return phones, word2ph, norm_text
 
 
+def clean_text(text, language, version=None):
+    if not EVENT_PATTERN.search(text):
+        return _clean_text_segment(text, language, version)
+
+    parts = EVENT_PATTERN.split(text)
+    all_phones = []
+    all_word2ph = [] if language in ("zh", "yue") else None
+    all_norm_text = []
+
+    for part in parts:
+        if not part:
+            continue
+        if part in EVENT_TO_BERT_SYMBOL:
+            all_phones.append(part)
+            if all_word2ph is not None:
+                all_word2ph.append(1)
+            all_norm_text.append(EVENT_TO_BERT_SYMBOL[part])
+        else:
+            phones, word2ph, norm_text = _clean_text_segment(part, language, version)
+            all_phones.extend(phones)
+            if all_word2ph is not None and word2ph is not None:
+                all_word2ph.extend(word2ph)
+            all_norm_text.append(norm_text)
+
+    final_norm = "".join(all_norm_text)
+    if all_word2ph is not None:
+        assert len(all_phones) == sum(all_word2ph)
+        assert len(final_norm) == len(all_word2ph)
+    return all_phones, all_word2ph, final_norm
+
+
 def clean_special(text, language, special_s, target_symbol, version=None):
     if version is None:
         version = os.environ.get("version", "v2")
@@ -65,9 +97,6 @@ def clean_special(text, language, special_s, target_symbol, version=None):
         symbols = symbols_v2.symbols
         language_module_map = {"zh": "chinese2", "ja": "japanese", "en": "english", "ko": "korean", "yue": "cantonese"}
 
-    """
-    特殊静音段sp符号处理
-    """
     text = text.replace(special_s, ",")
     language_module = __import__("text." + language_module_map[language], fromlist=[language_module_map[language]])
     norm_text = language_module.text_normalize(text)
@@ -86,9 +115,5 @@ def text_to_sequence(text, language, version=None):
     version = os.environ.get("version", version)
     if version is None:
         version = "v2"
-    phones = clean_text(text)
+    phones, _, _ = clean_text(text, language, version)
     return cleaned_text_to_sequence(phones, version)
-
-
-if __name__ == "__main__":
-    print(clean_text("你好%啊啊啊额、还是到付红四方。", "zh"))

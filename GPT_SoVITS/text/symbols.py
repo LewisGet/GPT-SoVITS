@@ -395,5 +395,8 @@ arpa = {
 
 symbols = [pad] + c + v + ja_symbols + pu_symbols + list(arpa)
 symbols = sorted(set(symbols))
+SPECIAL_EVENTS = ["[LAUGH]", "[SIGH]", "[COUGH]", "[BREATH]"]
+symbols = symbols + SPECIAL_EVENTS
+
 if __name__ == "__main__":
     print(len(symbols))
