@@ -13,6 +13,7 @@ from pytorch_lightning import LightningModule
 from AR.models.t2s_model import Text2SemanticDecoder
 from AR.modules.lr_schedulers import WarmupCosineLRSchedule
 from AR.modules.optim import ScaledAdam
+from text import symbols2
 
 
 class Text2SemanticLightningModule(LightningModule):
@@ -23,16 +24,24 @@ class Text2SemanticLightningModule(LightningModule):
         self.model = Text2SemanticDecoder(config=config, top_k=self.top_k)
         pretrained_s1 = config.get("pretrained_s1")
         if pretrained_s1 and is_train:
-            # print(self.load_state_dict(torch.load(pretrained_s1,map_location="cpu")["state_dict"]))
-            print(
-                self.load_state_dict(
-                    torch.load(
-                        pretrained_s1,
-                        map_location="cpu",
-                        weights_only=False,
-                    )["weight"],
-                )
-            )
+            state_dict = torch.load(pretrained_s1, map_location="cpu", weights_only=False)["weight"]
+            emb_key = "model.ar_text_embedding.word_embeddings.weight"
+            if emb_key in state_dict:
+                old_weight = state_dict[emb_key]
+                new_vocab_size = self.model.ar_text_embedding.word_embeddings.weight.shape[0]
+                old_vocab_size = old_weight.shape[0]
+                if new_vocab_size > old_vocab_size:
+                    expanded = torch.zeros(
+                        (new_vocab_size, old_weight.shape[1]),
+                        dtype=old_weight.dtype,
+                        device=old_weight.device,
+                    )
+                    expanded[:old_vocab_size] = old_weight
+                    comma_id = symbols2.symbols.index(",")
+                    expanded[old_vocab_size:] = old_weight[comma_id].unsqueeze(0)
+                    state_dict[emb_key] = expanded
+                    print(f"[Info] Expanded {emb_key}: {old_vocab_size} -> {new_vocab_size}")
+            print(self.load_state_dict(state_dict, strict=False))
         if is_train:
             self.automatic_optimization = False
             self.save_hyperparameters()
@@ -56,71 +65,16 @@ class Text2SemanticLightningModule(LightningModule):
             opt.zero_grad()
             scheduler.step()
 
-        self.log(
-            "total_loss",
-            loss,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
-        )
-        self.log(
-            "lr",
-            scheduler.get_last_lr()[0],
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
-        )
-        self.log(
-            f"top_{self.top_k}_acc",
-            acc,
-            on_step=True,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
-        )
+        self.log("total_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("lr", scheduler.get_last_lr()[0], on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"top_{self.top_k}_acc", acc, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
     def validation_step(self, batch: Dict, batch_idx: int):
         return
 
-    # # get loss
-    # loss, acc = self.model.forward(
-    #     batch['phoneme_ids'], batch['phoneme_ids_len'],
-    #     batch['semantic_ids'], batch['semantic_ids_len'],
-    #     batch['bert_feature']
-    # )
-    #
-    # self.log(
-    #     "val_total_loss",
-    #     loss,
-    #     on_step=True,
-    #     on_epoch=True,
-    #     prog_bar=True,
-    #     sync_dist=True)
-    # self.log(
-    #     f"val_top_{self.top_k}_acc",
-    #     acc,
-    #     on_step=True,
-    #     on_epoch=True,
-    #     prog_bar=True,
-    #     sync_dist=True)
-    #
-    # # get infer output
-    # semantic_len = batch['semantic_ids'].size(1)
-    # prompt_len = min(int(semantic_len * 0.5), 150)
-    # prompt = batch['semantic_ids'][:, :prompt_len]
-    # pred_semantic = self.model.infer(batch['phoneme_ids'],
-    #                                  batch['phoneme_ids_len'], prompt,
-    #                                  batch['bert_feature']
-    #                                  )
-    # save_name = f'semantic_toks_{batch_idx}.pt'
-    # save_path = os.path.join(self.eval_dir, save_name)
-    # torch.save(pred_semantic.detach().cpu(), save_path)
-
     def configure_optimizers(self):
         model_parameters = self.model.parameters()
-        parameters_names = []
-        parameters_names.append([name_param_pair[0] for name_param_pair in self.model.named_parameters()])
+        parameters_names = [[name_param_pair[0] for name_param_pair in self.model.named_parameters()]]
         lm_opt = ScaledAdam(
             model_parameters,
             lr=0.01,
@@ -130,7 +84,6 @@ class Text2SemanticLightningModule(LightningModule):
             show_dominant_parameters=False,
             clipping_update_period=1000,
         )
-
         return {
             "optimizer": lm_opt,
             "lr_scheduler": {
@@ -144,3 +97,4 @@ class Text2SemanticLightningModule(LightningModule):
                 )
             },
         }
+
